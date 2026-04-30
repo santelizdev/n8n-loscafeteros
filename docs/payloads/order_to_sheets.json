@@ -1,0 +1,16 @@
+{
+  "order_id": "ORD-20260430-001",
+  "fecha": "2026-04-30 15:30:00",
+  "telefono": "+56912345678",
+  "nombre": "Juan Pérez",
+  "direccion": "Av. Siempre Viva 123",
+  "comuna": "Santiago",
+  "cantidad_bidones": 2,
+  "metodo_pago": "transferencia",
+  "estado_pago": "pendiente",
+  "estado_pedido": "nuevo",
+  "chofer_asignado": "",
+  "observaciones": "",
+  "origen": "whatsapp",
+  "updated_at": "2026-04-30 15:30:00"
+}
