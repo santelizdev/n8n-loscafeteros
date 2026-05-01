@@ -4,3 +4,13 @@ node_modules/
 *.log
 docker-data/
 postgres/data/
+
+# Runtime data - NEVER commit
+n8n_data/
+postgres_data/
+.n8n/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+.env.*

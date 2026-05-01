@@ -1,0 +1,669 @@
+[
+  {
+    "id": "mvp-test-workflow-001",
+    "name": "MVP Los Cafeteros Local Test",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "whatsapp-inbound",
+          "responseMode": "lastNode",
+          "options": {}
+        },
+        "id": "webhook-inbound",
+        "name": "Webhook Inbound",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [
+          200,
+          320
+        ],
+        "webhookId": "whatsapp-inbound-local"
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ (($json.body || $json).entry[0].changes[0].value.messages[0].from) || '' }}"
+              },
+              {
+                "name": "incoming_message",
+                "type": "stringValue",
+                "stringValue": "={{ (($json.body || $json).entry[0].changes[0].value.messages[0].text.body) || '' }}"
+              },
+              {
+                "name": "contact_name",
+                "type": "stringValue",
+                "stringValue": "={{ (($json.body || $json).entry[0].changes[0].value.contacts[0].profile.name) || '' }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "set-inbound",
+        "name": "Set Inbound Fields",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          420,
+          320
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT\n  $1::text AS phone,\n  $2::text AS incoming_message,\n  $3::text AS contact_name,\n  COALESCE((SELECT state FROM conversation_state WHERE phone = $1), 'idle') AS current_state,\n  COALESCE((SELECT name FROM conversation_state WHERE phone = $1), '') AS stored_name,\n  COALESCE((SELECT product FROM conversation_state WHERE phone = $1), '') AS stored_product,\n  COALESCE((SELECT address FROM conversation_state WHERE phone = $1), '') AS stored_address;",
+          "options": {
+            "queryReplacement": "={{ [$json.phone, $json.incoming_message, $json.contact_name] }}"
+          }
+        },
+        "id": "postgres-select-state",
+        "name": "PostgreSQL Select State",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          660,
+          320
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "mode": "rules",
+          "dataType": "string",
+          "value1": "={{ $json.current_state }}",
+          "rules": {
+            "rules": [
+              {
+                "operation": "equal",
+                "value2": "idle",
+                "outputKey": "idle"
+              },
+              {
+                "operation": "equal",
+                "value2": "ASK_NAME",
+                "outputKey": "ask_name"
+              },
+              {
+                "operation": "equal",
+                "value2": "ASK_PRODUCT",
+                "outputKey": "ask_product"
+              },
+              {
+                "operation": "equal",
+                "value2": "ASK_ADDRESS",
+                "outputKey": "ask_address"
+              },
+              {
+                "operation": "equal",
+                "value2": "CONFIRM_ORDER",
+                "outputKey": "confirm_order"
+              }
+            ]
+          }
+        },
+        "id": "switch-state",
+        "name": "Route By State",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 2,
+        "position": [
+          920,
+          320
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone }}"
+              },
+              {
+                "name": "incoming_message",
+                "type": "stringValue",
+                "stringValue": "={{ $json.incoming_message }}"
+              },
+              {
+                "name": "current_state",
+                "type": "stringValue",
+                "stringValue": "={{ $json.current_state }}"
+              },
+              {
+                "name": "next_state",
+                "type": "stringValue",
+                "stringValue": "ASK_NAME"
+              },
+              {
+                "name": "customer_name",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_name || $json.contact_name || '' }}"
+              },
+              {
+                "name": "product",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_product || '' }}"
+              },
+              {
+                "name": "address",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_address || '' }}"
+              },
+              {
+                "name": "reply_text",
+                "type": "stringValue",
+                "stringValue": "Hola, soy Los Cafeteros. Para comenzar tu pedido, cual es tu nombre?"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "set-idle",
+        "name": "Set Idle Transition",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1180,
+          60
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone }}"
+              },
+              {
+                "name": "incoming_message",
+                "type": "stringValue",
+                "stringValue": "={{ $json.incoming_message }}"
+              },
+              {
+                "name": "current_state",
+                "type": "stringValue",
+                "stringValue": "={{ $json.current_state }}"
+              },
+              {
+                "name": "next_state",
+                "type": "stringValue",
+                "stringValue": "ASK_PRODUCT"
+              },
+              {
+                "name": "customer_name",
+                "type": "stringValue",
+                "stringValue": "={{ $json.incoming_message }}"
+              },
+              {
+                "name": "product",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_product || '' }}"
+              },
+              {
+                "name": "address",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_address || '' }}"
+              },
+              {
+                "name": "reply_text",
+                "type": "stringValue",
+                "stringValue": "={{ 'Gracias ' + $json.incoming_message + '. Que producto quieres pedir?' }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "set-ask-name",
+        "name": "Set ASK_NAME Transition",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1180,
+          190
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone }}"
+              },
+              {
+                "name": "incoming_message",
+                "type": "stringValue",
+                "stringValue": "={{ $json.incoming_message }}"
+              },
+              {
+                "name": "current_state",
+                "type": "stringValue",
+                "stringValue": "={{ $json.current_state }}"
+              },
+              {
+                "name": "next_state",
+                "type": "stringValue",
+                "stringValue": "ASK_ADDRESS"
+              },
+              {
+                "name": "customer_name",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_name || $json.contact_name || '' }}"
+              },
+              {
+                "name": "product",
+                "type": "stringValue",
+                "stringValue": "={{ $json.incoming_message }}"
+              },
+              {
+                "name": "address",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_address || '' }}"
+              },
+              {
+                "name": "reply_text",
+                "type": "stringValue",
+                "stringValue": "={{ 'Perfecto, anoto ' + $json.incoming_message + '. Cual es tu direccion de entrega?' }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "set-ask-product",
+        "name": "Set ASK_PRODUCT Transition",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1180,
+          320
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone }}"
+              },
+              {
+                "name": "incoming_message",
+                "type": "stringValue",
+                "stringValue": "={{ $json.incoming_message }}"
+              },
+              {
+                "name": "current_state",
+                "type": "stringValue",
+                "stringValue": "={{ $json.current_state }}"
+              },
+              {
+                "name": "next_state",
+                "type": "stringValue",
+                "stringValue": "CONFIRM_ORDER"
+              },
+              {
+                "name": "customer_name",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_name || $json.contact_name || '' }}"
+              },
+              {
+                "name": "product",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_product || '' }}"
+              },
+              {
+                "name": "address",
+                "type": "stringValue",
+                "stringValue": "={{ $json.incoming_message }}"
+              },
+              {
+                "name": "reply_text",
+                "type": "stringValue",
+                "stringValue": "={{ 'Gracias. Confirmo tu pedido de ' + ($json.stored_product || 'agua') + ' para ' + $json.incoming_message + '. Responde SI para confirmar.' }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "set-ask-address",
+        "name": "Set ASK_ADDRESS Transition",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1180,
+          450
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone }}"
+              },
+              {
+                "name": "incoming_message",
+                "type": "stringValue",
+                "stringValue": "={{ $json.incoming_message }}"
+              },
+              {
+                "name": "current_state",
+                "type": "stringValue",
+                "stringValue": "={{ $json.current_state }}"
+              },
+              {
+                "name": "next_state",
+                "type": "stringValue",
+                "stringValue": "CONFIRM_ORDER"
+              },
+              {
+                "name": "customer_name",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_name || $json.contact_name || '' }}"
+              },
+              {
+                "name": "product",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_product || '' }}"
+              },
+              {
+                "name": "address",
+                "type": "stringValue",
+                "stringValue": "={{ $json.stored_address || '' }}"
+              },
+              {
+                "name": "reply_text",
+                "type": "stringValue",
+                "stringValue": "Pedido confirmado localmente. Workflow listo para conectar APIs reales despues."
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "set-confirm-order",
+        "name": "Set CONFIRM_ORDER Transition",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1180,
+          580
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO conversation_state (phone, state, name, product, address, last_message)\nVALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), $6)\nON CONFLICT (phone) DO UPDATE SET\n  state = EXCLUDED.state,\n  name = COALESCE(EXCLUDED.name, conversation_state.name),\n  product = COALESCE(EXCLUDED.product, conversation_state.product),\n  address = COALESCE(EXCLUDED.address, conversation_state.address),\n  last_message = EXCLUDED.last_message,\n  updated_at = NOW()\nRETURNING phone, state, name, product, address, last_message, $7::text AS reply_text;",
+          "options": {
+            "queryReplacement": "={{ [$json.phone, $json.next_state, $json.customer_name, $json.product, $json.address, $json.incoming_message, $json.reply_text] }}"
+          }
+        },
+        "id": "postgres-update-state",
+        "name": "PostgreSQL Update State",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1470,
+          320
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "http://localhost:5678/healthz",
+          "options": {}
+        },
+        "id": "http-local-mock",
+        "name": "HTTP Request Mock",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          1710,
+          320
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "status",
+                "type": "stringValue",
+                "stringValue": "success"
+              },
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $item(0).$node['PostgreSQL Update State'].json.phone }}"
+              },
+              {
+                "name": "previous_state",
+                "type": "stringValue",
+                "stringValue": "={{ $item(0).$node['Route By State'].json.current_state }}"
+              },
+              {
+                "name": "next_state",
+                "type": "stringValue",
+                "stringValue": "={{ $item(0).$node['PostgreSQL Update State'].json.state }}"
+              },
+              {
+                "name": "reply_text",
+                "type": "stringValue",
+                "stringValue": "={{ $item(0).$node['PostgreSQL Update State'].json.reply_text }}"
+              },
+              {
+                "name": "mock_status",
+                "type": "stringValue",
+                "stringValue": "={{ $json.status || 'unknown' }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "set-final-response",
+        "name": "Set Final Response",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1950,
+          320
+        ]
+      }
+    ],
+    "connections": {
+      "Webhook Inbound": {
+        "main": [
+          [
+            {
+              "node": "Set Inbound Fields",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set Inbound Fields": {
+        "main": [
+          [
+            {
+              "node": "PostgreSQL Select State",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PostgreSQL Select State": {
+        "main": [
+          [
+            {
+              "node": "Route By State",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route By State": {
+        "main": [
+          [
+            {
+              "node": "Set Idle Transition",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Set ASK_NAME Transition",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Set ASK_PRODUCT Transition",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Set ASK_ADDRESS Transition",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Set CONFIRM_ORDER Transition",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set Idle Transition": {
+        "main": [
+          [
+            {
+              "node": "PostgreSQL Update State",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set ASK_NAME Transition": {
+        "main": [
+          [
+            {
+              "node": "PostgreSQL Update State",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set ASK_PRODUCT Transition": {
+        "main": [
+          [
+            {
+              "node": "PostgreSQL Update State",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set ASK_ADDRESS Transition": {
+        "main": [
+          [
+            {
+              "node": "PostgreSQL Update State",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Set CONFIRM_ORDER Transition": {
+        "main": [
+          [
+            {
+              "node": "PostgreSQL Update State",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PostgreSQL Update State": {
+        "main": [
+          [
+            {
+              "node": "HTTP Request Mock",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP Request Mock": {
+        "main": [
+          [
+            {
+              "node": "Set Final Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "pinData": {},
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  }
+]
