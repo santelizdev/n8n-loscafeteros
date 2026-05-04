@@ -1,666 +1,1806 @@
-{
-  "name": "MVP Los Cafeteros Local Test",
-  "active": false,
-  "nodes": [
-    {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "whatsapp-inbound",
-        "responseMode": "lastNode",
-        "options": {}
+[
+  {
+    "id": "lc-router-001",
+    "name": "whatsapp-inbound-router",
+    "active": false,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "GET",
+          "path": "whatsapp-inbound",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "router-webhook-verify",
+        "name": "Webhook Verification",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          240,
+          180
+        ],
+        "webhookId": "whatsapp-inbound-router-get"
       },
-      "id": "webhook-inbound",
-      "name": "Webhook Inbound",
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 1,
-      "position": [
-        200,
-        320
-      ],
-      "webhookId": "whatsapp-inbound-local"
-    },
-    {
-      "parameters": {
-        "mode": "manual",
-        "fields": {
-          "values": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "whatsapp-inbound",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "router-webhook-post",
+        "name": "Webhook Inbound",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.1,
+        "position": [
+          240,
+          540
+        ],
+        "webhookId": "whatsapp-inbound-router-post"
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const item = $input.first().json;\nconst query = item.query ?? {};\nconst body = item.body ?? {};\nconst challenge = query['hub.challenge'] ?? query.challenge ?? null;\nconst message = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0] ?? null;\nconst senderName = body?.entry?.[0]?.changes?.[0]?.value?.contacts?.[0]?.profile?.name ?? '';\nif (challenge) {\n  return [{ json: { request_kind: 'verification', challenge: String(challenge), action_taken: 'meta_verification' } }];\n}\nif (!message || !message.from) {\n  return [{ json: { request_kind: 'ignore', reason: 'unsupported_payload', action_taken: 'ignore_unsupported_payload' } }];\n}\nreturn [{\n  json: {\n    request_kind: 'message',\n    phone: String(message.from),\n    message_text: String(message?.text?.body ?? ''),\n    message_id: String(message.id ?? ''),\n    timestamp: String(message.timestamp ?? ''),\n    sender_name: String(senderName),\n    raw_body: body,\n    action_taken: 'router_normalized',\n  },\n}];"
+        },
+        "id": "router-normalize",
+        "name": "Normalize Router Payload",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "rules",
+          "dataType": "string",
+          "value1": "={{ $json.request_kind }}",
+          "rules": {
+            "rules": [
+              {
+                "operation": "equal",
+                "value2": "verification",
+                "outputKey": "verification"
+              },
+              {
+                "operation": "equal",
+                "value2": "message",
+                "outputKey": "message"
+              },
+              {
+                "operation": "equal",
+                "value2": "ignore",
+                "outputKey": "ignore"
+              }
+            ]
+          }
+        },
+        "id": "router-request-switch",
+        "name": "Route Request Kind",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 2,
+        "position": [
+          820,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT $1::text AS phone, $2::text AS message_text, $3::text AS message_id, $4::text AS timestamp, $5::text AS sender_name, EXISTS (SELECT 1 FROM riders WHERE phone = $1 AND active = true) AS rider_exists;",
+          "options": {
+            "queryReplacement": "={{ [$json.phone, $json.message_text, $json.message_id, $json.timestamp, $json.sender_name] }}"
+          }
+        },
+        "id": "router-check-rider",
+        "name": "Lookup Rider",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1120,
+          360
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const item = $input.first().json;\nconst actorType = item.rider_exists ? 'rider' : 'customer';\nreturn [{ json: { ...item, actor_type: actorType, action_taken: actorType === 'rider' ? 'route_to_rider' : 'route_to_customer' } }];"
+        },
+        "id": "router-decide-actor",
+        "name": "Decide Actor",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1420,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "rules",
+          "dataType": "string",
+          "value1": "={{ $json.actor_type }}",
+          "rules": {
+            "rules": [
+              {
+                "operation": "equal",
+                "value2": "rider",
+                "outputKey": "rider"
+              },
+              {
+                "operation": "equal",
+                "value2": "customer",
+                "outputKey": "customer"
+              }
+            ]
+          }
+        },
+        "id": "router-actor-switch",
+        "name": "Route Actor",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 2,
+        "position": [
+          1720,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "value": "lc-rider-update-001",
+            "mode": "list"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": false
+          }
+        },
+        "id": "router-call-rider",
+        "name": "Call Rider Update",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          2020,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "value": "lc-conversation-001",
+            "mode": "list"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": false
+          }
+        },
+        "id": "router-call-customer",
+        "name": "Call Conversation Engine",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          2020,
+          540
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "text",
+          "responseBody": "={{ $json.challenge }}",
+          "options": {}
+        },
+        "id": "router-respond-verification",
+        "name": "Respond Verification",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          1120,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "respondWith": "noData",
+          "options": {}
+        },
+        "id": "router-respond-post",
+        "name": "Respond 200 Fast",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          2020,
+          360
+        ]
+      }
+    ],
+    "connections": {
+      "Webhook Verification": {
+        "main": [
+          [
             {
-              "name": "phone",
-              "type": "stringValue",
-              "stringValue": "={{ (($json.body || $json).entry[0].changes[0].value.messages[0].from) || '' }}"
-            },
-            {
-              "name": "incoming_message",
-              "type": "stringValue",
-              "stringValue": "={{ (($json.body || $json).entry[0].changes[0].value.messages[0].text.body) || '' }}"
-            },
-            {
-              "name": "contact_name",
-              "type": "stringValue",
-              "stringValue": "={{ (($json.body || $json).entry[0].changes[0].value.contacts[0].profile.name) || '' }}"
+              "node": "Normalize Router Payload",
+              "type": "main",
+              "index": 0
             }
           ]
-        },
-        "include": "none",
-        "options": {}
+        ]
       },
-      "id": "set-inbound",
-      "name": "Set Inbound Fields",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.1,
-      "position": [
-        420,
-        320
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT\n  $1::text AS phone,\n  $2::text AS incoming_message,\n  $3::text AS contact_name,\n  COALESCE((SELECT state FROM conversation_state WHERE phone = $1), 'idle') AS current_state,\n  COALESCE((SELECT name FROM conversation_state WHERE phone = $1), '') AS stored_name,\n  COALESCE((SELECT product FROM conversation_state WHERE phone = $1), '') AS stored_product,\n  COALESCE((SELECT address FROM conversation_state WHERE phone = $1), '') AS stored_address;",
-        "options": {
-          "queryReplacement": "={{ [$json.phone, $json.incoming_message, $json.contact_name] }}"
-        }
+      "Webhook Inbound": {
+        "main": [
+          [
+            {
+              "node": "Normalize Router Payload",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       },
-      "id": "postgres-select-state",
-      "name": "PostgreSQL Select State",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        660,
-        320
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "local-postgres-mvp",
-          "name": "Local Postgres MVP"
-        }
+      "Normalize Router Payload": {
+        "main": [
+          [
+            {
+              "node": "Route Request Kind",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route Request Kind": {
+        "main": [
+          [
+            {
+              "node": "Respond Verification",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Lookup Rider",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Respond 200 Fast",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Lookup Rider": {
+        "main": [
+          [
+            {
+              "node": "Decide Actor",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Decide Actor": {
+        "main": [
+          [
+            {
+              "node": "Route Actor",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route Actor": {
+        "main": [
+          [
+            {
+              "node": "Call Rider Update",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Call Conversation Engine",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Rider Update": {
+        "main": [
+          [
+            {
+              "node": "Respond 200 Fast",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call Conversation Engine": {
+        "main": [
+          [
+            {
+              "node": "Respond 200 Fast",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
-    {
-      "parameters": {
-        "mode": "rules",
-        "dataType": "string",
-        "value1": "={{ $json.current_state }}",
-        "rules": {
-          "rules": [
-            {
-              "operation": "equal",
-              "value2": "idle",
-              "outputKey": "idle"
-            },
-            {
-              "operation": "equal",
-              "value2": "ASK_NAME",
-              "outputKey": "ask_name"
-            },
-            {
-              "operation": "equal",
-              "value2": "ASK_PRODUCT",
-              "outputKey": "ask_product"
-            },
-            {
-              "operation": "equal",
-              "value2": "ASK_ADDRESS",
-              "outputKey": "ask_address"
-            },
-            {
-              "operation": "equal",
-              "value2": "CONFIRM_ORDER",
-              "outputKey": "confirm_order"
-            }
-          ]
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "pinData": {},
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  },
+  {
+    "id": "lc-conversation-001",
+    "name": "conversation-engine",
+    "active": false,
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "passthrough"
+        },
+        "id": "conversation-trigger",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          240,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT $1::text AS phone, $2::text AS message_text, $3::text AS message_id, $4::text AS sender_name, $5::text AS inbound_timestamp, EXISTS (SELECT 1 FROM orders WHERE message_id = $3) AS order_message_exists, cs.state, cs.name, cs.product, cs.quantity, cs.address, cs.payment_type, cs.draft_order, cs.updated_at FROM (SELECT 1) seed LEFT JOIN conversation_state cs ON cs.phone = $1;",
+          "options": {
+            "queryReplacement": "={{ [$json.phone, $json.message_text, $json.message_id, $json.sender_name, $json.timestamp] }}"
+          }
+        },
+        "id": "conversation-fetch-state",
+        "name": "Fetch Conversation State",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          520,
+          360
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
         }
       },
-      "id": "switch-state",
-      "name": "Route By State",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 2,
-      "position": [
-        920,
-        320
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "manual",
-        "fields": {
-          "values": [
-            {
-              "name": "phone",
-              "type": "stringValue",
-              "stringValue": "={{ $json.phone }}"
-            },
-            {
-              "name": "incoming_message",
-              "type": "stringValue",
-              "stringValue": "={{ $json.incoming_message }}"
-            },
-            {
-              "name": "current_state",
-              "type": "stringValue",
-              "stringValue": "={{ $json.current_state }}"
-            },
-            {
-              "name": "next_state",
-              "type": "stringValue",
-              "stringValue": "ASK_NAME"
-            },
-            {
-              "name": "customer_name",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_name || $json.contact_name || '' }}"
-            },
-            {
-              "name": "product",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_product || '' }}"
-            },
-            {
-              "name": "address",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_address || '' }}"
-            },
-            {
-              "name": "reply_text",
-              "type": "stringValue",
-              "stringValue": "Hola, soy Los Cafeteros. Para comenzar tu pedido, cual es tu nombre?"
-            }
-          ]
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const row = $input.first().json;\nconst now = new Date();\nconst normalized = String(row.message_text ?? '').trim();\nconst lower = normalized.toLowerCase();\nif (row.order_message_exists) {\n  return [{\n    json: {\n      phone: row.phone,\n      message_id: row.message_id,\n      route: 'ignore',\n      action_taken: 'duplicate_message_ignored',\n    },\n  }];\n}\nlet state = row.state || 'idle';\nlet name = row.name || '';\nlet product = row.product || '';\nlet quantity = row.quantity ?? null;\nlet address = row.address || '';\nlet paymentType = row.payment_type || '';\nconst updatedAt = row.updated_at ? new Date(row.updated_at) : null;\nif (updatedAt && state !== 'idle' && now.getTime() - updatedAt.getTime() > 30 * 60 * 1000) {\n  state = 'idle';\n  name = '';\n  product = '';\n  quantity = null;\n  address = '';\n  paymentType = '';\n}\nlet responseText = '';\nlet route = 'persist';\nlet nextState = state;\nconst confirmSet = new Set(['si', 'sí', 'ok', 'confirmo', 'dale']);\nconst cancelSet = new Set(['no', 'cancelar']);\nswitch (state) {\n  case 'idle':\n    nextState = 'ASK_NAME';\n    responseText = 'Hola, ¿Cuál es tu nombre?';\n    break;\n  case 'ASK_NAME':\n    name = normalized || row.sender_name || '';\n    nextState = 'ASK_PRODUCT';\n    responseText = '¿Qué deseas pedir?';\n    break;\n  case 'ASK_PRODUCT':\n    product = normalized;\n    nextState = 'ASK_QUANTITY';\n    responseText = '¿Cuántos?';\n    break;\n  case 'ASK_QUANTITY': {\n    const parsed = Number.parseInt(normalized, 10);\n    if (!Number.isInteger(parsed) || parsed <= 0) {\n      nextState = 'ASK_QUANTITY';\n      responseText = 'Indica una cantidad válida en número. ¿Cuántos?';\n    } else {\n      quantity = parsed;\n      nextState = 'ASK_ADDRESS';\n      responseText = '¿Dirección?';\n    }\n    break;\n  }\n  case 'ASK_ADDRESS':\n    address = normalized;\n    nextState = 'ASK_PAYMENT_TYPE';\n    responseText = '¿Pago efectivo o transferencia?';\n    break;\n  case 'ASK_PAYMENT_TYPE': {\n    if (lower.includes('efectivo')) {\n      paymentType = 'efectivo';\n      nextState = 'CONFIRM_ORDER';\n      responseText = `Resumen:\\nNombre: ${name}\\nProducto: ${product}\\nCantidad: ${quantity}\\nDirección: ${address}\\nPago: ${paymentType}\\n\\nResponde SI para confirmar o NO para cancelar.`;\n    } else if (lower.includes('transfer')) {\n      paymentType = 'transferencia';\n      nextState = 'CONFIRM_ORDER';\n      responseText = `Resumen:\\nNombre: ${name}\\nProducto: ${product}\\nCantidad: ${quantity}\\nDirección: ${address}\\nPago: ${paymentType}\\n\\nResponde SI para confirmar o NO para cancelar.`;\n    } else {\n      nextState = 'ASK_PAYMENT_TYPE';\n      responseText = 'Indica un medio de pago válido: efectivo o transferencia.';\n    }\n    break;\n  }\n  case 'CONFIRM_ORDER':\n    if (confirmSet.has(lower)) {\n      route = 'create_order';\n      nextState = 'idle';\n    } else if (cancelSet.has(lower)) {\n      route = 'persist';\n      nextState = 'idle';\n      name = '';\n      product = '';\n      quantity = null;\n      address = '';\n      paymentType = '';\n      responseText = 'Pedido cancelado.';\n    } else {\n      nextState = 'CONFIRM_ORDER';\n      responseText = `Resumen:\\nNombre: ${name}\\nProducto: ${product}\\nCantidad: ${quantity}\\nDirección: ${address}\\nPago: ${paymentType}\\n\\nResponde SI para confirmar o NO para cancelar.`;\n    }\n    break;\n  default:\n    nextState = 'ASK_NAME';\n    responseText = 'Hola, ¿Cuál es tu nombre?';\n    break;\n}\nconst draftOrder = route === 'create_order'\n  ? {}\n  : { name, product, quantity, address, payment_type: paymentType };\nreturn [{\n  json: {\n    phone: row.phone,\n    message_text: row.message_text,\n    message_id: row.message_id,\n    sender_name: row.sender_name,\n    route,\n    state: nextState,\n    name,\n    product,\n    quantity,\n    address,\n    payment_type: paymentType,\n    draft_order: draftOrder,\n    response_text: responseText,\n    customer_phone: row.phone,\n    customer_name: name || row.sender_name || '',\n    action_taken: route === 'create_order' ? 'conversation_confirmed_create_order' : 'conversation_state_' + nextState.toLowerCase(),\n  },\n}];"
         },
-        "include": "none",
-        "options": {}
+        "id": "conversation-evaluate",
+        "name": "Evaluate State Machine",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          820,
+          360
+        ]
       },
-      "id": "set-idle",
-      "name": "Set Idle Transition",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.1,
-      "position": [
-        1180,
-        60
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "manual",
-        "fields": {
-          "values": [
-            {
-              "name": "phone",
-              "type": "stringValue",
-              "stringValue": "={{ $json.phone }}"
-            },
-            {
-              "name": "incoming_message",
-              "type": "stringValue",
-              "stringValue": "={{ $json.incoming_message }}"
-            },
-            {
-              "name": "current_state",
-              "type": "stringValue",
-              "stringValue": "={{ $json.current_state }}"
-            },
-            {
-              "name": "next_state",
-              "type": "stringValue",
-              "stringValue": "ASK_PRODUCT"
-            },
-            {
-              "name": "customer_name",
-              "type": "stringValue",
-              "stringValue": "={{ $json.incoming_message }}"
-            },
-            {
-              "name": "product",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_product || '' }}"
-            },
-            {
-              "name": "address",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_address || '' }}"
-            },
-            {
-              "name": "reply_text",
-              "type": "stringValue",
-              "stringValue": "={{ 'Gracias ' + $json.incoming_message + '. Que producto quieres pedir?' }}"
-            }
-          ]
+      {
+        "parameters": {
+          "mode": "rules",
+          "dataType": "string",
+          "value1": "={{ $json.route }}",
+          "rules": {
+            "rules": [
+              {
+                "operation": "equal",
+                "value2": "persist",
+                "outputKey": "persist"
+              },
+              {
+                "operation": "equal",
+                "value2": "create_order",
+                "outputKey": "create_order"
+              },
+              {
+                "operation": "equal",
+                "value2": "ignore",
+                "outputKey": "ignore"
+              }
+            ]
+          }
         },
-        "include": "none",
-        "options": {}
+        "id": "conversation-route",
+        "name": "Route Conversation Action",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          360
+        ]
       },
-      "id": "set-ask-name",
-      "name": "Set ASK_NAME Transition",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.1,
-      "position": [
-        1180,
-        190
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "manual",
-        "fields": {
-          "values": [
-            {
-              "name": "phone",
-              "type": "stringValue",
-              "stringValue": "={{ $json.phone }}"
-            },
-            {
-              "name": "incoming_message",
-              "type": "stringValue",
-              "stringValue": "={{ $json.incoming_message }}"
-            },
-            {
-              "name": "current_state",
-              "type": "stringValue",
-              "stringValue": "={{ $json.current_state }}"
-            },
-            {
-              "name": "next_state",
-              "type": "stringValue",
-              "stringValue": "ASK_ADDRESS"
-            },
-            {
-              "name": "customer_name",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_name || $json.contact_name || '' }}"
-            },
-            {
-              "name": "product",
-              "type": "stringValue",
-              "stringValue": "={{ $json.incoming_message }}"
-            },
-            {
-              "name": "address",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_address || '' }}"
-            },
-            {
-              "name": "reply_text",
-              "type": "stringValue",
-              "stringValue": "={{ 'Perfecto, anoto ' + $json.incoming_message + '. Cual es tu direccion de entrega?' }}"
-            }
-          ]
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO conversation_state (phone, state, name, product, quantity, address, payment_type, draft_order) VALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), $5, NULLIF($6, ''), NULLIF($7, ''), $8::jsonb) ON CONFLICT (phone) DO UPDATE SET state = EXCLUDED.state, name = EXCLUDED.name, product = EXCLUDED.product, quantity = EXCLUDED.quantity, address = EXCLUDED.address, payment_type = EXCLUDED.payment_type, draft_order = EXCLUDED.draft_order, updated_at = NOW() RETURNING phone, state;",
+          "options": {
+            "queryReplacement": "={{ [$json.phone, $json.state, $json.name || \"\", $json.product || \"\", $json.quantity, $json.address || \"\", $json.payment_type || \"\", JSON.stringify($json.draft_order || {})] }}"
+          }
         },
-        "include": "none",
-        "options": {}
-      },
-      "id": "set-ask-product",
-      "name": "Set ASK_PRODUCT Transition",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.1,
-      "position": [
-        1180,
-        320
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "manual",
-        "fields": {
-          "values": [
-            {
-              "name": "phone",
-              "type": "stringValue",
-              "stringValue": "={{ $json.phone }}"
-            },
-            {
-              "name": "incoming_message",
-              "type": "stringValue",
-              "stringValue": "={{ $json.incoming_message }}"
-            },
-            {
-              "name": "current_state",
-              "type": "stringValue",
-              "stringValue": "={{ $json.current_state }}"
-            },
-            {
-              "name": "next_state",
-              "type": "stringValue",
-              "stringValue": "CONFIRM_ORDER"
-            },
-            {
-              "name": "customer_name",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_name || $json.contact_name || '' }}"
-            },
-            {
-              "name": "product",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_product || '' }}"
-            },
-            {
-              "name": "address",
-              "type": "stringValue",
-              "stringValue": "={{ $json.incoming_message }}"
-            },
-            {
-              "name": "reply_text",
-              "type": "stringValue",
-              "stringValue": "={{ 'Gracias. Confirmo tu pedido de ' + ($json.stored_product || 'agua') + ' para ' + $json.incoming_message + '. Responde SI para confirmar.' }}"
-            }
-          ]
-        },
-        "include": "none",
-        "options": {}
-      },
-      "id": "set-ask-address",
-      "name": "Set ASK_ADDRESS Transition",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.1,
-      "position": [
-        1180,
-        450
-      ]
-    },
-    {
-      "parameters": {
-        "mode": "manual",
-        "fields": {
-          "values": [
-            {
-              "name": "phone",
-              "type": "stringValue",
-              "stringValue": "={{ $json.phone }}"
-            },
-            {
-              "name": "incoming_message",
-              "type": "stringValue",
-              "stringValue": "={{ $json.incoming_message }}"
-            },
-            {
-              "name": "current_state",
-              "type": "stringValue",
-              "stringValue": "={{ $json.current_state }}"
-            },
-            {
-              "name": "next_state",
-              "type": "stringValue",
-              "stringValue": "CONFIRM_ORDER"
-            },
-            {
-              "name": "customer_name",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_name || $json.contact_name || '' }}"
-            },
-            {
-              "name": "product",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_product || '' }}"
-            },
-            {
-              "name": "address",
-              "type": "stringValue",
-              "stringValue": "={{ $json.stored_address || '' }}"
-            },
-            {
-              "name": "reply_text",
-              "type": "stringValue",
-              "stringValue": "Pedido confirmado localmente. Workflow listo para conectar APIs reales despues."
-            }
-          ]
-        },
-        "include": "none",
-        "options": {}
-      },
-      "id": "set-confirm-order",
-      "name": "Set CONFIRM_ORDER Transition",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.1,
-      "position": [
-        1180,
-        580
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "INSERT INTO conversation_state (phone, state, name, product, address, last_message)\nVALUES ($1, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), $6)\nON CONFLICT (phone) DO UPDATE SET\n  state = EXCLUDED.state,\n  name = COALESCE(EXCLUDED.name, conversation_state.name),\n  product = COALESCE(EXCLUDED.product, conversation_state.product),\n  address = COALESCE(EXCLUDED.address, conversation_state.address),\n  last_message = EXCLUDED.last_message,\n  updated_at = NOW()\nRETURNING phone, state, name, product, address, last_message, $7::text AS reply_text;",
-        "options": {
-          "queryReplacement": "={{ [$json.phone, $json.next_state, $json.customer_name, $json.product, $json.address, $json.incoming_message, $json.reply_text] }}"
+        "id": "conversation-persist-state",
+        "name": "Persist Conversation State",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1420,
+          180
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
         }
       },
-      "id": "postgres-update-state",
-      "name": "PostgreSQL Update State",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        1470,
-        320
-      ],
-      "credentials": {
-        "postgres": {
-          "id": "local-postgres-mvp",
-          "name": "Local Postgres MVP"
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "to",
+                "type": "stringValue",
+                "stringValue": "={{ $items(\"Evaluate State Machine\", 0, 0).first().json.customer_phone }}"
+              },
+              {
+                "name": "body",
+                "type": "stringValue",
+                "stringValue": "={{ $items(\"Evaluate State Machine\", 0, 0).first().json.response_text }}"
+              },
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $items(\"Evaluate State Machine\", 0, 0).first().json.phone }}"
+              },
+              {
+                "name": "message_id",
+                "type": "stringValue",
+                "stringValue": "={{ $items(\"Evaluate State Machine\", 0, 0).first().json.message_id }}"
+              },
+              {
+                "name": "action_taken",
+                "type": "stringValue",
+                "stringValue": "={{ $items(\"Evaluate State Machine\", 0, 0).first().json.action_taken }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "conversation-build-reply",
+        "name": "Build Customer Reply",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1720,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "value": "lc-send-whatsapp-001",
+            "mode": "list"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": false
+          }
+        },
+        "id": "conversation-send-reply",
+        "name": "Send Customer Reply",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          2020,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH upsert AS (INSERT INTO conversation_state (phone, state, name, product, quantity, address, payment_type, draft_order) VALUES ($1, 'idle', NULL, NULL, NULL, NULL, NULL, '{}'::jsonb) ON CONFLICT (phone) DO UPDATE SET state = 'idle', name = NULL, product = NULL, quantity = NULL, address = NULL, payment_type = NULL, draft_order = '{}'::jsonb, updated_at = NOW() RETURNING phone) SELECT $1::text AS phone, $2::text AS message_id, $3::text AS customer_phone, $4::text AS customer_name, $5::text AS product, $6::integer AS quantity, $7::text AS address, $8::text AS payment_type, 'reset_and_create_order'::text AS action_taken FROM upsert;",
+          "options": {
+            "queryReplacement": "={{ [$json.phone, $json.message_id, $json.customer_phone, $json.customer_name, $json.product, $json.quantity, $json.address, $json.payment_type] }}"
+          }
+        },
+        "id": "conversation-reset-on-create",
+        "name": "Reset State After Confirm",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1420,
+          540
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
         }
+      },
+      {
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "value": "lc-order-create-001",
+            "mode": "list"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": false
+          }
+        },
+        "id": "conversation-call-order-create",
+        "name": "Call Order Create",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          1720,
+          540
+        ]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Fetch Conversation State",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Conversation State": {
+        "main": [
+          [
+            {
+              "node": "Evaluate State Machine",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Evaluate State Machine": {
+        "main": [
+          [
+            {
+              "node": "Route Conversation Action",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route Conversation Action": {
+        "main": [
+          [
+            {
+              "node": "Persist Conversation State",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Reset State After Confirm",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
+      },
+      "Persist Conversation State": {
+        "main": [
+          [
+            {
+              "node": "Build Customer Reply",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Customer Reply": {
+        "main": [
+          [
+            {
+              "node": "Send Customer Reply",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Reset State After Confirm": {
+        "main": [
+          [
+            {
+              "node": "Call Order Create",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
-    {
-      "parameters": {
-        "method": "GET",
-        "url": "http://localhost:5678/healthz",
-        "options": {}
-      },
-      "id": "http-local-mock",
-      "name": "HTTP Request Mock",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        1710,
-        320
-      ]
+    "settings": {
+      "executionOrder": "v1"
     },
-    {
-      "parameters": {
-        "mode": "manual",
-        "fields": {
-          "values": [
-            {
-              "name": "status",
-              "type": "stringValue",
-              "stringValue": "success"
+    "staticData": null,
+    "pinData": {},
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  },
+  {
+    "id": "lc-order-create-001",
+    "name": "order-create",
+    "active": false,
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "passthrough"
+        },
+        "id": "order-trigger",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          240,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT $1::text AS message_id, $2::text AS phone, $3::text AS customer_phone, $4::text AS customer_name, $5::text AS product, $6::integer AS quantity, $7::text AS address, $8::text AS payment_type, EXISTS (SELECT 1 FROM orders WHERE message_id = $1) AS already_exists;",
+          "options": {
+            "queryReplacement": "={{ [$json.message_id, $json.phone || $json.customer_phone, $json.customer_phone || $json.phone, $json.customer_name || $json.name, $json.product, $json.quantity, $json.address, $json.payment_type] }}"
+          }
+        },
+        "id": "order-check-idempotency",
+        "name": "Check Message Idempotency",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          520,
+          360
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const row = $input.first().json;\nif (row.already_exists) {\n  return [{ json: { ...row, route: 'duplicate', action_taken: 'duplicate_message_ignored' } }];\n}\nconst phone = String(row.customer_phone || row.phone || '');\nconst last4 = phone.slice(-4).padStart(4, '0');\nconst now = new Date();\nconst parts = [\n  now.getUTCFullYear(),\n  String(now.getUTCMonth() + 1).padStart(2, '0'),\n  String(now.getUTCDate()).padStart(2, '0'),\n].join('');\nconst time = [\n  String(now.getUTCHours()).padStart(2, '0'),\n  String(now.getUTCMinutes()).padStart(2, '0'),\n  String(now.getUTCSeconds()).padStart(2, '0'),\n].join('');\nreturn [{\n  json: {\n    ...row,\n    route: 'create',\n    order_code: `LC-${parts}-${time}-${last4}`,\n    action_taken: 'order_code_generated',\n  },\n}];"
+        },
+        "id": "order-build-code",
+        "name": "Build Order Code",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          820,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "rules",
+          "dataType": "string",
+          "value1": "={{ $json.route }}",
+          "rules": {
+            "rules": [
+              {
+                "operation": "equal",
+                "value2": "duplicate",
+                "outputKey": "duplicate"
+              },
+              {
+                "operation": "equal",
+                "value2": "create",
+                "outputKey": "create"
+              }
+            ]
+          }
+        },
+        "id": "order-route",
+        "name": "Route Order Action",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 2,
+        "position": [
+          1120,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO orders (order_code, message_id, customer_phone, customer_name, product, quantity, address, payment_type, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending') RETURNING *;",
+          "options": {
+            "queryReplacement": "={{ [$json.order_code, $json.message_id, $json.customer_phone || $json.phone, $json.customer_name || $json.name, $json.product, $json.quantity, $json.address, $json.payment_type] }}"
+          }
+        },
+        "id": "order-insert",
+        "name": "Insert Order",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1420,
+          360
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const order = $input.first().json;\nreturn [{\n  json: {\n    ...order,\n    order_code: order.order_code,\n    customer_phone: order.customer_phone,\n    customer_name: order.customer_name,\n    product: order.product,\n    quantity: order.quantity,\n    address: order.address,\n    payment_type: order.payment_type,\n    status: order.status,\n    rider_phone: order.rider_phone || '',\n    action_taken: 'order_created_prepared_for_mirror',\n  },\n}];"
+        },
+        "id": "order-prepare-sheets",
+        "name": "Prepare Sheets Mirror",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1720,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "rules",
+          "dataType": "string",
+          "value1": "skip",
+          "rules": {
+            "rules": [
+              {
+                "operation": "equal",
+                "value2": "append",
+                "outputKey": "append"
+              },
+              {
+                "operation": "equal",
+                "value2": "skip",
+                "outputKey": "skip"
+              }
+            ]
+          }
+        },
+        "id": "order-route-sheets",
+        "name": "Route Sheets Mirror",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 2,
+        "position": [
+          2020,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "googleSheetsOAuth2Api",
+          "resource": "sheet",
+          "operation": "append",
+          "documentId": {
+            "mode": "id",
+            "value": "={{ $env.GOOGLE_SHEETS_DOCUMENT_ID || \"SPREADSHEET_ID\" }}"
+          },
+          "sheetName": {
+            "mode": "name",
+            "value": "={{ $env.GOOGLE_SHEETS_SHEET_NAME || \"Orders\" }}"
+          },
+          "columns": {
+            "mappingMode": "autoMapInputData",
+            "value": null
+          },
+          "options": {
+            "locationDefine": {
+              "values": {
+                "headerRow": 1
+              }
             },
+            "useAppend": true
+          }
+        },
+        "id": "order-google-sheets",
+        "name": "Append Google Sheets Mirror",
+        "type": "n8n-nodes-base.googleSheets",
+        "typeVersion": 4.7,
+        "position": [
+          2020,
+          180
+        ],
+        "onError": "continueRegularOutput",
+        "credentials": {
+          "googleSheetsOAuth2Api": {
+            "id": "google-sheets-mirror",
+            "name": "Google Sheets Mirror"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT r.phone, r.name FROM (SELECT 1) seed LEFT JOIN LATERAL (SELECT phone, name FROM riders WHERE active = true ORDER BY phone LIMIT 1) r ON TRUE;",
+          "options": {}
+        },
+        "id": "order-select-rider",
+        "name": "Select Active Rider",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          2320,
+          360
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const order = $items('Prepare Sheets Mirror', 0, 0).first().json;\nconst rider = $input.first()?.json ?? null;\nconst items = [];\nif (rider?.phone) {\n  items.push({\n    json: {\n      to: rider.phone,\n      body: `Nuevo pedido ${order.order_code}\\nCliente: ${order.customer_name}\\nTeléfono: ${order.customer_phone}\\nProducto: ${order.product}\\nCantidad: ${order.quantity}\\nPago: ${order.payment_type}\\nDirección: ${order.address}\\n\\nPara confirmar: ENTREGADO ${order.order_code} ${order.payment_type}`,\n      phone: rider.phone,\n      message_id: order.message_id,\n      action_taken: 'notify_rider_new_order',\n    },\n  });\n}\nitems.push({\n  json: {\n    to: order.customer_phone,\n    phone: order.customer_phone,\n    message_id: order.message_id,\n    action_taken: rider?.phone ? 'notify_customer_order_dispatched' : 'notify_customer_order_registered',\n    body: rider?.phone\n      ? `Tu pedido ${order.order_code} va en camino`\n      : `Tu pedido ${order.order_code} fue registrado. Te avisaremos cuando salga a reparto.`,\n  },\n});\nreturn items;"
+        },
+        "id": "order-build-notifications",
+        "name": "Build Notifications",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2620,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "value": "lc-send-whatsapp-001",
+            "mode": "list"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": false
+          }
+        },
+        "id": "order-send-notifications",
+        "name": "Send WhatsApp Notifications",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          2920,
+          360
+        ]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
             {
-              "name": "phone",
-              "type": "stringValue",
-              "stringValue": "={{ $item(0).$node['PostgreSQL Update State'].json.phone }}"
-            },
-            {
-              "name": "previous_state",
-              "type": "stringValue",
-              "stringValue": "={{ $item(0).$node['Route By State'].json.current_state }}"
-            },
-            {
-              "name": "next_state",
-              "type": "stringValue",
-              "stringValue": "={{ $item(0).$node['PostgreSQL Update State'].json.state }}"
-            },
-            {
-              "name": "reply_text",
-              "type": "stringValue",
-              "stringValue": "={{ $item(0).$node['PostgreSQL Update State'].json.reply_text }}"
-            },
-            {
-              "name": "mock_status",
-              "type": "stringValue",
-              "stringValue": "={{ $json.status || 'unknown' }}"
+              "node": "Check Message Idempotency",
+              "type": "main",
+              "index": 0
             }
           ]
-        },
-        "include": "none",
-        "options": {}
+        ]
       },
-      "id": "set-final-response",
-      "name": "Set Final Response",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.1,
-      "position": [
-        1950,
-        320
-      ]
-    }
-  ],
-  "connections": {
-    "Webhook Inbound": {
-      "main": [
-        [
-          {
-            "node": "Set Inbound Fields",
-            "type": "main",
-            "index": 0
-          }
+      "Check Message Idempotency": {
+        "main": [
+          [
+            {
+              "node": "Build Order Code",
+              "type": "main",
+              "index": 0
+            }
+          ]
         ]
-      ]
+      },
+      "Build Order Code": {
+        "main": [
+          [
+            {
+              "node": "Route Order Action",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route Order Action": {
+        "main": [
+          [],
+          [
+            {
+              "node": "Insert Order",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Insert Order": {
+        "main": [
+          [
+            {
+              "node": "Prepare Sheets Mirror",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Sheets Mirror": {
+        "main": [
+          [
+            {
+              "node": "Route Sheets Mirror",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route Sheets Mirror": {
+        "main": [
+          [
+            {
+              "node": "Append Google Sheets Mirror",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Select Active Rider",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Append Google Sheets Mirror": {
+        "main": [
+          [
+            {
+              "node": "Select Active Rider",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Select Active Rider": {
+        "main": [
+          [
+            {
+              "node": "Build Notifications",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Notifications": {
+        "main": [
+          [
+            {
+              "node": "Send WhatsApp Notifications",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
     },
-    "Set Inbound Fields": {
-      "main": [
-        [
-          {
-            "node": "PostgreSQL Select State",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "settings": {
+      "executionOrder": "v1"
     },
-    "PostgreSQL Select State": {
-      "main": [
-        [
-          {
-            "node": "Route By State",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "staticData": null,
+    "pinData": {},
+    "meta": {
+      "templateCredsSetupCompleted": false
     },
-    "Route By State": {
-      "main": [
-        [
-          {
-            "node": "Set Idle Transition",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Set ASK_NAME Transition",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Set ASK_PRODUCT Transition",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Set ASK_ADDRESS Transition",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Set CONFIRM_ORDER Transition",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Set Idle Transition": {
-      "main": [
-        [
-          {
-            "node": "PostgreSQL Update State",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Set ASK_NAME Transition": {
-      "main": [
-        [
-          {
-            "node": "PostgreSQL Update State",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Set ASK_PRODUCT Transition": {
-      "main": [
-        [
-          {
-            "node": "PostgreSQL Update State",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Set ASK_ADDRESS Transition": {
-      "main": [
-        [
-          {
-            "node": "PostgreSQL Update State",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Set CONFIRM_ORDER Transition": {
-      "main": [
-        [
-          {
-            "node": "PostgreSQL Update State",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "PostgreSQL Update State": {
-      "main": [
-        [
-          {
-            "node": "HTTP Request Mock",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "HTTP Request Mock": {
-      "main": [
-        [
-          {
-            "node": "Set Final Response",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
+    "tags": []
   },
-  "settings": {
-    "executionOrder": "v1"
+  {
+    "id": "lc-rider-update-001",
+    "name": "rider-update",
+    "active": false,
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "passthrough"
+        },
+        "id": "rider-trigger",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          240,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const item = $input.first().json;\nconst raw = String(item.message_text || '').trim();\nconst upper = raw.toUpperCase();\nconst parts = upper.split(/\\s+/).filter(Boolean);\nif (!upper.startsWith('ENTREGADO')) {\n  return [{ json: { ...item, route: 'invalid', reply_text: 'Formato incorrecto. Usa: ENTREGADO {order_code} {payment_type}', action_taken: 'rider_input_invalid' } }];\n}\nif (!parts[1]) {\n  return [{ json: { ...item, route: 'invalid', reply_text: 'Formato incorrecto. Usa: ENTREGADO {order_code}', action_taken: 'rider_input_missing_code' } }];\n}\nconst paymentType = raw.split(/\\s+/).slice(2).join(' ').trim();\nreturn [{\n  json: {\n    ...item,\n    route: 'lookup',\n    order_code: parts[1],\n    payment_type_candidate: paymentType ? paymentType.toLowerCase() : '',\n    action_taken: 'rider_lookup_order',\n  },\n}];"
+        },
+        "id": "rider-parse",
+        "name": "Parse Rider Message",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "rules",
+          "dataType": "string",
+          "value1": "={{ $json.route }}",
+          "rules": {
+            "rules": [
+              {
+                "operation": "equal",
+                "value2": "invalid",
+                "outputKey": "invalid"
+              },
+              {
+                "operation": "equal",
+                "value2": "lookup",
+                "outputKey": "lookup"
+              }
+            ]
+          }
+        },
+        "id": "rider-route",
+        "name": "Route Rider Action",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 2,
+        "position": [
+          820,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "to",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone }}"
+              },
+              {
+                "name": "body",
+                "type": "stringValue",
+                "stringValue": "={{ $json.reply_text }}"
+              },
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone }}"
+              },
+              {
+                "name": "message_id",
+                "type": "stringValue",
+                "stringValue": "={{ $json.message_id }}"
+              },
+              {
+                "name": "action_taken",
+                "type": "stringValue",
+                "stringValue": "={{ $json.action_taken }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "rider-build-invalid-reply",
+        "name": "Build Invalid Rider Reply",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1120,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "value": "lc-send-whatsapp-001",
+            "mode": "list"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": false
+          }
+        },
+        "id": "rider-send-invalid-reply",
+        "name": "Send Invalid Rider Reply",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          1420,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT $1::text AS order_code, $2::text AS phone, $3::text AS message_id, $4::text AS payment_type_candidate, o.id, o.customer_phone, o.payment_type, o.status FROM (SELECT 1) seed LEFT JOIN orders o ON o.order_code = $1;",
+          "options": {
+            "queryReplacement": "={{ [$json.order_code, $json.phone, $json.message_id, $json.payment_type_candidate] }}"
+          }
+        },
+        "id": "rider-find-order",
+        "name": "Find Order By Code",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          1120,
+          540
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const row = $input.first().json;\nif (!row.id) {\n  return [{ json: { ...row, route: 'not_found', reply_text: 'Código no encontrado', action_taken: 'rider_order_code_not_found' } }];\n}\nreturn [{\n  json: {\n    ...row,\n    route: 'update',\n    final_payment_type: row.payment_type_candidate || row.payment_type || '',\n    action_taken: 'rider_update_order',\n  },\n}];"
+        },
+        "id": "rider-decide-order",
+        "name": "Decide Rider Update",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1420,
+          540
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "rules",
+          "dataType": "string",
+          "value1": "={{ $json.route }}",
+          "rules": {
+            "rules": [
+              {
+                "operation": "equal",
+                "value2": "not_found",
+                "outputKey": "not_found"
+              },
+              {
+                "operation": "equal",
+                "value2": "update",
+                "outputKey": "update"
+              }
+            ]
+          }
+        },
+        "id": "rider-route-found",
+        "name": "Route Order Match",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 2,
+        "position": [
+          1720,
+          540
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "to",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone }}"
+              },
+              {
+                "name": "body",
+                "type": "stringValue",
+                "stringValue": "={{ $json.reply_text }}"
+              },
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone }}"
+              },
+              {
+                "name": "message_id",
+                "type": "stringValue",
+                "stringValue": "={{ $json.message_id }}"
+              },
+              {
+                "name": "action_taken",
+                "type": "stringValue",
+                "stringValue": "={{ $json.action_taken }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "rider-build-not-found",
+        "name": "Build Not Found Reply",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          2020,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "value": "lc-send-whatsapp-001",
+            "mode": "list"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": false
+          }
+        },
+        "id": "rider-send-not-found",
+        "name": "Send Not Found Reply",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          2020,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH updated AS (UPDATE orders SET status = 'delivered', delivered_at = NOW(), updated_at = NOW(), payment_type = COALESCE(NULLIF($2, ''), payment_type), rider_phone = COALESCE(NULLIF($3, ''), rider_phone) WHERE order_code = $1 RETURNING order_code, customer_phone, payment_type, rider_phone) SELECT updated.order_code, updated.customer_phone, updated.payment_type, updated.rider_phone, $4::text AS message_id FROM updated;",
+          "options": {
+            "queryReplacement": "={{ [$json.order_code, $json.final_payment_type, $json.phone, $json.message_id] }}"
+          }
+        },
+        "id": "rider-update-order",
+        "name": "Mark Order Delivered",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          2020,
+          720
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "local-postgres-mvp",
+            "name": "Local Postgres MVP"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const row = $input.first().json;\nreturn [\n  { json: { to: row.customer_phone, phone: row.customer_phone, message_id: row.message_id, action_taken: 'notify_customer_order_delivered', body: `Tu pedido ${row.order_code} fue entregado` } },\n  { json: { to: row.rider_phone, phone: row.rider_phone, message_id: row.message_id, action_taken: 'notify_rider_delivery_recorded', body: 'Entrega registrada correctamente' } },\n];"
+        },
+        "id": "rider-build-success",
+        "name": "Build Delivery Notifications",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2020,
+          720
+        ]
+      },
+      {
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "value": "lc-send-whatsapp-001",
+            "mode": "list"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": null
+          },
+          "mode": "each",
+          "options": {
+            "waitForSubWorkflow": false
+          }
+        },
+        "id": "rider-send-success",
+        "name": "Send Delivery Notifications",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          2320,
+          720
+        ]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Parse Rider Message",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse Rider Message": {
+        "main": [
+          [
+            {
+              "node": "Route Rider Action",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route Rider Action": {
+        "main": [
+          [
+            {
+              "node": "Build Invalid Rider Reply",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Find Order By Code",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Invalid Rider Reply": {
+        "main": [
+          [
+            {
+              "node": "Send Invalid Rider Reply",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Find Order By Code": {
+        "main": [
+          [
+            {
+              "node": "Decide Rider Update",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Decide Rider Update": {
+        "main": [
+          [
+            {
+              "node": "Route Order Match",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route Order Match": {
+        "main": [
+          [
+            {
+              "node": "Build Not Found Reply",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Mark Order Delivered",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Not Found Reply": {
+        "main": [
+          [
+            {
+              "node": "Send Not Found Reply",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mark Order Delivered": {
+        "main": [
+          [
+            {
+              "node": "Build Delivery Notifications",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Delivery Notifications": {
+        "main": [
+          [
+            {
+              "node": "Send Delivery Notifications",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "pinData": {},
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
   },
-  "pinData": {},
-  "meta": {
-    "templateCredsSetupCompleted": false
-  },
-  "id": "mvp-test-workflow-001",
-  "tags": []
-}
+  {
+    "id": "lc-send-whatsapp-001",
+    "name": "send-whatsapp-message",
+    "active": false,
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "passthrough"
+        },
+        "id": "send-trigger",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.1,
+        "position": [
+          240,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "language": "javaScript",
+          "jsCode": "const item = $input.first().json;\nif (!item.to || !item.body) {\n  return [{ json: { ...item, route: 'skip', reason: 'missing_payload', to: item.to || '', body: item.body || '', action_taken: item.action_taken || 'skip_missing_payload' } }];\n}\nreturn [{ json: { ...item, route: 'dispatch', to: item.to, body: item.body } }];"
+        },
+        "id": "send-decide-mode",
+        "name": "Decide Delivery Mode",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          520,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "rules",
+          "dataType": "string",
+          "value1": "={{ $json.route === \"skip\" ? \"skip\" : \"mock\" }}",
+          "rules": {
+            "rules": [
+              {
+                "operation": "equal",
+                "value2": "mock",
+                "outputKey": "mock"
+              },
+              {
+                "operation": "equal",
+                "value2": "live",
+                "outputKey": "live"
+              },
+              {
+                "operation": "equal",
+                "value2": "skip",
+                "outputKey": "skip"
+              }
+            ]
+          }
+        },
+        "id": "send-route",
+        "name": "Route Delivery Mode",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 2,
+        "position": [
+          820,
+          360
+        ]
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "status",
+                "type": "stringValue",
+                "stringValue": "mock"
+              },
+              {
+                "name": "to",
+                "type": "stringValue",
+                "stringValue": "={{ $json.to }}"
+              },
+              {
+                "name": "body",
+                "type": "stringValue",
+                "stringValue": "={{ $json.body }}"
+              },
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone || $json.to || \"\" }}"
+              },
+              {
+                "name": "message_id",
+                "type": "stringValue",
+                "stringValue": "={{ $json.message_id || \"\" }}"
+              },
+              {
+                "name": "action_taken",
+                "type": "stringValue",
+                "stringValue": "={{ $json.action_taken || \"mock_whatsapp_delivery\" }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "send-mock",
+        "name": "Mock WhatsApp Delivery",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1120,
+          180
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "={{ ($env.WHATSAPP_GRAPH_BASE_URL || \"https://placeholder.invalid/whatsapp\") + \"/\" + $json.phone_number_id + \"/messages\" }}",
+          "authentication": "none",
+          "sendHeaders": true,
+          "specifyHeaders": "keypair",
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "={{ \"Bearer \" + $env.WHATSAPP_ACCESS_TOKEN }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "json",
+          "specifyBody": "json",
+          "jsonBody": "={{ ({ messaging_product: \"whatsapp\", to: $json.to, type: \"text\", text: { body: $json.body } }) }}",
+          "options": {}
+        },
+        "id": "send-live-http",
+        "name": "Send WhatsApp API Request",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          1120,
+          360
+        ],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "mode": "manual",
+          "fields": {
+            "values": [
+              {
+                "name": "status",
+                "type": "stringValue",
+                "stringValue": "skipped"
+              },
+              {
+                "name": "reason",
+                "type": "stringValue",
+                "stringValue": "={{ $json.reason || \"missing_payload\" }}"
+              },
+              {
+                "name": "phone",
+                "type": "stringValue",
+                "stringValue": "={{ $json.phone || $json.to || \"\" }}"
+              },
+              {
+                "name": "message_id",
+                "type": "stringValue",
+                "stringValue": "={{ $json.message_id || \"\" }}"
+              },
+              {
+                "name": "action_taken",
+                "type": "stringValue",
+                "stringValue": "={{ $json.action_taken || \"skip_missing_payload\" }}"
+              }
+            ]
+          },
+          "include": "none",
+          "options": {}
+        },
+        "id": "send-skip",
+        "name": "Skip Invalid Delivery",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.1,
+        "position": [
+          1120,
+          540
+        ]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Decide Delivery Mode",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Decide Delivery Mode": {
+        "main": [
+          [
+            {
+              "node": "Route Delivery Mode",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route Delivery Mode": {
+        "main": [
+          [
+            {
+              "node": "Mock WhatsApp Delivery",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Send WhatsApp API Request",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Skip Invalid Delivery",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "pinData": {},
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  }
+]
